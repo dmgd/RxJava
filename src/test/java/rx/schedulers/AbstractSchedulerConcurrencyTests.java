@@ -54,14 +54,22 @@ public abstract class AbstractSchedulerConcurrencyTests extends AbstractSchedule
     public final void testUnSubscribeForScheduler() throws InterruptedException {
         final AtomicInteger countReceived = new AtomicInteger();
         final AtomicInteger countGenerated = new AtomicInteger();
-        final CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch subscribed = new CountDownLatch(1);
+        final CountDownLatch unsubscribed = new CountDownLatch(1);
 
-        Observable.interval(50, TimeUnit.MILLISECONDS)
+        TestScheduler testScheduler = Schedulers.test();
+        Observable.interval(50, TimeUnit.MILLISECONDS, testScheduler)
                 .map(new Func1<Long, Long>() {
                     @Override
                     public Long call(Long aLong) {
                         countGenerated.incrementAndGet();
                         return aLong;
+                    }
+                })
+                .doOnSubscribe(new Action0() {
+                    @Override
+                    public void call() {
+                        subscribed.countDown();
                     }
                 })
                 .subscribeOn(getScheduler())
@@ -79,19 +87,18 @@ public abstract class AbstractSchedulerConcurrencyTests extends AbstractSchedule
 
                     @Override
                     public void onNext(Long args) {
+                        System.out.println("==> Received " + args);
                         if (countReceived.incrementAndGet() == 2) {
                             unsubscribe();
-                            latch.countDown();
+                            unsubscribed.countDown();
                         }
-                        System.out.println("==> Received " + args);
                     }
                 });
 
-        latch.await(1000, TimeUnit.MILLISECONDS);
-
-        System.out.println("----------- it thinks it is finished ------------------ ");
-        Thread.sleep(100);
-
+        subscribed.await(1000, TimeUnit.MILLISECONDS);
+        testScheduler.advanceTimeBy(100, TimeUnit.MILLISECONDS);
+        unsubscribed.await(1000, TimeUnit.MILLISECONDS);
+        testScheduler.advanceTimeBy(100, TimeUnit.MILLISECONDS);
         assertEquals(2, countGenerated.get());
     }
 
